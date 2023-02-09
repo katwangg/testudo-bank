@@ -251,6 +251,12 @@ public class MvcController {
     return dateTime;
   }
 
+  // Calculates overdraft increase amount in penny amount after applying interest
+  private static int applyInterestRateToPennyAmount(int pennyAmount) {
+    int newAmount = (int) (pennyAmount * INTEREST_RATE);
+    return newAmount;
+  }
+
   // HTML POST HANDLERS ////
 
   /**
@@ -410,7 +416,7 @@ public class MvcController {
     int userOverdraftBalanceInPennies = TestudoBankRepository.getCustomerOverdraftBalanceInPennies(jdbcTemplate, userID);
     if (userWithdrawAmtInPennies > userBalanceInPennies) { // if withdraw amount exceeds main balance, withdraw into overdraft with interest fee
       int excessWithdrawAmtInPennies = userWithdrawAmtInPennies - userBalanceInPennies;
-      int newOverdraftIncreaseAmtAfterInterestInPennies = (int)(excessWithdrawAmtInPennies * INTEREST_RATE);
+      int newOverdraftIncreaseAmtAfterInterestInPennies = applyInterestRateToPennyAmount(excessWithdrawAmtInPennies);
       int newOverdraftBalanceInPennies = userOverdraftBalanceInPennies + newOverdraftIncreaseAmtAfterInterestInPennies;
 
       // abort withdraw transaction if new overdraft balance exceeds max overdraft limit
