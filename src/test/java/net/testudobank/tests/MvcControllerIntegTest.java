@@ -1833,14 +1833,12 @@ public class MvcControllerIntegTest {
     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
         .queryForList("SELECT * FROM TransactionHistory;");
 
-    // verify that customer1's data is still the only data populated in Customers
-    // table
+    // verify that customer1's data is still the only data populated in Customers table
     assertEquals(1, customersTableData.size());
     Map<String, Object> customer1Data = customersTableData.get(0);
     assertEquals(CUSTOMER1_ID, (String) customer1Data.get("CustomerID"));
 
-    // verify customer balance was increased by $35.30 ($20 + $15.30) due to deposit
-    // and applying interest
+    // verify customer balance was increased by $35.30 ($20 + $15.30) due to deposit and applying interest
     double CUSTOMER1_EXPECTED_FINAL_BALANCE = CUSTOMER1_BALANCE +
         CUSTOMER1_AMOUNT_TO_DEPOSIT + CUSTOMER1_INTEREST;
     double CUSTOMER1_EXPECTED_FINAL_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
@@ -1849,8 +1847,7 @@ public class MvcControllerIntegTest {
 
     assertEquals(2, transactionHistoryTableData.size());
 
-    // verify that the Deposit's details are accurately logged in the
-    // TransactionHistory table
+    // verify that transacrtions are accurately logged in the TransactionHistory table
     Map<String, Object> customer1TransactionLogDeposit = transactionHistoryTableData.get(0);
     int CUSTOMER1_AMOUNT_TO_DEPOSIT_IN_PENNIES = MvcControllerIntegTestHelpers
         .convertDollarsToPennies(CUSTOMER1_AMOUNT_TO_DEPOSIT);
@@ -1858,8 +1855,6 @@ public class MvcControllerIntegTest {
         CUSTOMER1_ID,
         MvcController.TRANSACTION_HISTORY_DEPOSIT_ACTION, CUSTOMER1_AMOUNT_TO_DEPOSIT_IN_PENNIES);
 
-    // verify that the ApplyInterest's details are accurately logged in the
-    // TransactionHistory table
     Map<String, Object> customer1TransactionLogApplyInterest = transactionHistoryTableData.get(1);
     int CUSTOMER1_INTEREST_IN_PENNIES = MvcControllerIntegTestHelpers
         .convertDollarsToPennies(CUSTOMER1_INTEREST);
@@ -1906,12 +1901,9 @@ public class MvcControllerIntegTest {
     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
         .queryForList("SELECT * FROM TransactionHistory;");
 
-    // verify that there are 7 transactions in the TransactionHistory table (7
-    // deposits and 1 apply interest)
     assertEquals(8, transactionHistoryTableData.size());
 
-    // verify that the deposits are accurately logged in the TransactionHistory
-    // table and the fifth transaction is ApplyInterest
+    // verify that the deposits are accurately logged in the TransactionHistory table
     Map<String, Object> customer1TransactionLogApplyInterest = transactionHistoryTableData.get(5);
     assertEquals("ApplyInterest", (String) customer1TransactionLogApplyInterest.get("Action"));
 
