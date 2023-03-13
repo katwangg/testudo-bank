@@ -1811,32 +1811,24 @@ public class MvcControllerIntegTest {
    */
   @Test
   public void testSimpleApplyInterest() throws SQLException, ScriptException {
-    // Initialize customer1 with a balance of $1000. Balance will be represented
-    // as pennies in DB.
     double CUSTOMER1_BALANCE = 1000;
     int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
     MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
         CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 4);
 
-    // Prepare Deposit Form to Deposit money to customer 1's account. user input is
-    // in dollar amount, not pennies.
     User customer1DepositFormInputs = new User();
     customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
     customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
     double CUSTOMER1_AMOUNT_TO_DEPOSIT = 20.00;
     double CUSTOMER1_INTEREST = 15.30;
 
-    // send a request to the Deposit Form's POST handler in MvcController
     customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
     controller.submitDeposit(customer1DepositFormInputs);
 
-    // store timestamp of when Deposit request is sent to verify timestamps in the
-    // TransactionHistory table later
     LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
         .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
     System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
 
-    // fetch updated data from the DB
     List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
         .queryForList("SELECT * FROM TransactionHistory;");
@@ -1855,8 +1847,6 @@ public class MvcControllerIntegTest {
         .convertDollarsToPennies(CUSTOMER1_EXPECTED_FINAL_BALANCE);
     assertEquals(CUSTOMER1_EXPECTED_FINAL_BALANCE_IN_PENNIES, (int) customer1Data.get("Balance"));
 
-    // verify that the Deposit and ApplyInterest are the only logs in
-    // TransactionHistory table
     assertEquals(2, transactionHistoryTableData.size());
 
     // verify that the Deposit's details are accurately logged in the
@@ -1888,22 +1878,15 @@ public class MvcControllerIntegTest {
    */
   @Test
   public void testApplyInterestEveryFiveTransactions() throws SQLException, ScriptException {
-    // Initialize customer1 with a balance of $1000.11. Balance will be represented
-    // as
-    // pennies in DB.
     double CUSTOMER1_BALANCE = 1000.11;
     int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
     MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
         CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
 
-    // Prepare Deposit Form to Deposit money to customer 1's account. user input is
-    // in dollar
-    // amount, not pennies.
     User customer1DepositFormInputs = new User();
     customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
     customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
 
-    // send 6 requests to the Deposit Form's POST handler in MvcController
     customer1DepositFormInputs.setAmountToDeposit(20.00);
     controller.submitDeposit(customer1DepositFormInputs);
     customer1DepositFormInputs.setAmountToDeposit(20.01);
@@ -1919,7 +1902,6 @@ public class MvcControllerIntegTest {
     customer1DepositFormInputs.setAmountToDeposit(19.99);
     controller.submitDeposit(customer1DepositFormInputs);
 
-    // fetch updated data from the DB
     List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
         .queryForList("SELECT * FROM TransactionHistory;");
