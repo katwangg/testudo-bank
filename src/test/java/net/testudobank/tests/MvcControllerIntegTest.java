@@ -1919,4 +1919,80 @@ public class MvcControllerIntegTest {
 
   }
 
+  /**
+   * Test customers that are in overdraft are excluded from gaining interest on their balance.
+   * 
+   * @throws SQLException
+   * @throws ScriptException
+   */
+  @Test
+  public void testApplyInterestOverdraft() throws SQLException, ScriptException {
+    int CUSTOMER1_BALANCE_IN_PENNIES = 0;
+    double CUSTOMER1_OVERDRAFT_BALANCE = 100.12;
+    int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
+        .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
+    int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
+        CUSTOMER1_NUM_FRAUD_REVERSALS, 4);
+
+    double CUSTOMER1_AMOUNT_TO_DEPOSIT = 50.00; 
+    User customer1DepositFormInputs = new User();
+    customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
+    customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
+    customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
+    controller.submitDeposit(customer1DepositFormInputs);
+
+    LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
+        .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
+    System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
+
+    List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
+    List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
+        .queryForList("SELECT * FROM TransactionHistory;");
+
+    // verify that the deposit is accurately logged in the TransactionHistory table
+    Map<String, Object> customer1Data = customersTableData.get(0);
+    assertEquals(4, (int) customer1Data.get("numDepositsForInterest"));
+    assertEquals(1, transactionHistoryTableData.size());    
+  }
+
+  /**
+   * Test customers that have no balance are excluded from gaining interest on their balance.
+   * 
+   * @throws SQLException
+   * @throws ScriptException
+   */
+  @Test
+  public void testApplyInterestInsufficientBalance() throws SQLException, ScriptException {
+    int CUSTOMER1_BALANCE_IN_PENNIES = 0;
+    double CUSTOMER1_OVERDRAFT_BALANCE = 50.00;
+    int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
+        .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
+    int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
+        CUSTOMER1_NUM_FRAUD_REVERSALS, 0);
+
+    double CUSTOMER1_AMOUNT_TO_DEPOSIT = 50.00; 
+    User customer1DepositFormInputs = new User();
+    customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
+    customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
+    customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
+    controller.submitDeposit(customer1DepositFormInputs);
+
+    LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
+        .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
+    System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
+
+    List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
+    List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
+        .queryForList("SELECT * FROM TransactionHistory;");
+
+    // verify that the deposit is accurately logged in the TransactionHistory table
+    Map<String, Object> customer1Data = customersTableData.get(0);
+    assertEquals(0, (int) customer1Data.get("numDepositsForInterest"));
+    assertEquals(1, transactionHistoryTableData.size());   
+  }
+
 }
