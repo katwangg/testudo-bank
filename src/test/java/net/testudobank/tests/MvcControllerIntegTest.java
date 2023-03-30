@@ -1995,4 +1995,101 @@ public class MvcControllerIntegTest {
     assertEquals(1, transactionHistoryTableData.size());   
   }
 
+  /**
+   * Test that a user with no pre-exisitng Crypto can buy ETH and SOL and then
+   * sell SOL.
+   */
+  @Test
+  public void testCryptoBuyETHSOLAndSellSOL() throws ScriptException {
+    CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
+        .initialBalanceInDollars(1000)
+        .build();
+
+    cryptoTransactionTester.initialize();
+
+    // Buy ETH
+    CryptoTransaction cryptoTransactionBuyETH = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(900)
+        .expectedEndingCryptoBalance(0.1)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("ETH")
+        .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
+        .shouldSucceed(true)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionBuyETH);
+
+    // Buy SOL
+    CryptoTransaction cryptoTransactionBuySOL = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(800)
+        .expectedEndingCryptoBalance(0.1)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("SOL")
+        .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
+        .shouldSucceed(true)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionBuySOL);
+
+    // Sell SOL
+    CryptoTransaction cryptoTransactionSellSOL = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(900)
+        .expectedEndingCryptoBalance(0)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("SOL")
+        .cryptoTransactionTestType(CryptoTransactionTestType.SELL)
+        .shouldSucceed(true)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionSellSOL);
+  }
+
+  /**
+   * Test that no crypto buy transaction occurs when the user attempts to buy BTC,
+   * which is not supported by Testudo Bank.
+   */
+  @Test
+  public void testCryptoBuyBTCInvalid() throws ScriptException {
+    CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
+        .initialBalanceInDollars(1000)
+        .build();
+
+    cryptoTransactionTester.initialize();
+
+    CryptoTransaction cryptoTransactionBuyBTC = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(1000)
+        .expectedEndingCryptoBalance(0)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("BTC")
+        .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
+        .shouldSucceed(false)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionBuyBTC);
+  }
+
+  /**
+   * Test that no crypto sell transaction occurs when the user attempts to sell
+   * BTC, which is not supported by Testudo Bank.
+   */
+  @Test
+  public void testCryptoSellBTCInvalid() throws ScriptException {
+    CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
+        .initialBalanceInDollars(1000)
+        .build();
+
+    cryptoTransactionTester.initialize();
+
+    CryptoTransaction cryptoTransactionSellBTC = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(1000)
+        .expectedEndingCryptoBalance(0)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("BTC")
+        .cryptoTransactionTestType(CryptoTransactionTestType.SELL)
+        .shouldSucceed(false)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionSellBTC);
+  }
+
 }
