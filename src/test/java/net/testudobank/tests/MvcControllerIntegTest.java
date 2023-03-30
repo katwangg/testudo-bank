@@ -1996,8 +1996,8 @@ public class MvcControllerIntegTest {
   }
 
   /**
-   * Test that a user with no pre-exisitng Crypto can buy ETH and SOL and then
-   * sell SOL.
+   * Test that a user with no pre-exisiting Crypto can buy ETH and SOL and then
+   * sell some SOL.
    */
   @Test
   public void testCryptoBuyETHSOLAndSellSOL() throws ScriptException {
@@ -2021,10 +2021,10 @@ public class MvcControllerIntegTest {
 
     // Buy SOL
     CryptoTransaction cryptoTransactionBuySOL = CryptoTransaction.builder()
-        .expectedEndingBalanceInDollars(800)
-        .expectedEndingCryptoBalance(0.1)
+        .expectedEndingBalanceInDollars(600)
+        .expectedEndingCryptoBalance(0.3)
         .cryptoPrice(1000)
-        .cryptoAmountToTransact(0.1)
+        .cryptoAmountToTransact(0.3)
         .cryptoName("SOL")
         .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
         .shouldSucceed(true)
@@ -2033,8 +2033,8 @@ public class MvcControllerIntegTest {
 
     // Sell SOL
     CryptoTransaction cryptoTransactionSellSOL = CryptoTransaction.builder()
-        .expectedEndingBalanceInDollars(900)
-        .expectedEndingCryptoBalance(0)
+        .expectedEndingBalanceInDollars(700)
+        .expectedEndingCryptoBalance(0.2)
         .cryptoPrice(1000)
         .cryptoAmountToTransact(0.1)
         .cryptoName("SOL")
