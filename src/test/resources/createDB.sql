@@ -48,3 +48,12 @@ CREATE TABLE CryptoHistory (
   CryptoName varchar(255),
   CryptoAmount decimal(30,18)
 );
+
+CREATE TABLE AutoTransfers (
+  CustomerID varchar(255),
+  RecipientID varchar(255),
+  Frequency varchar(255),
+  TransferAmt int,
+  StartDate DATETIME,
+  EndDate DATETIME
+);

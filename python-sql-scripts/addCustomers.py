@@ -93,6 +93,20 @@ CREATE TABLE CryptoHistory (
 cursor.execute(create_cryptohistory_table_sql)
 
 
+# Make empty AutoTransfers table
+create_autotransfers_table_sql = '''
+CREATE TABLE AutoTransfers (
+  CustomerID varchar(255),
+  RecipientID varchar(255),
+  Frequency varchar(255),
+  TransferAmt int,
+  StartDate DATETIME,
+  EndDate DATETIME
+);
+'''
+cursor.execute(create_autotransfers_table_sql)
+
+
 
 # The two sets created below are used to ensure that this
 # automated, randomized process does not accidentally 

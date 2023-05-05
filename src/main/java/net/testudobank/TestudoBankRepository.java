@@ -177,4 +177,15 @@ public class TestudoBankRepository {
       return false;
     }
   }
+
+  public static void insertRowToAutoTransfersTable(JdbcTemplate jdbcTemplate, String customerID, String recipientID, String frequency, int amtInPennies, String startDate, String endDate) {
+    String insertRowToAutoTransfersSql = String.format("INSERT INTO AutoTransfers VALUES ('%s', '%s', '%s', %d, '%s', '%s');",
+                                                              customerID,
+                                                              recipientID,
+                                                              frequency,
+                                                              amtInPennies,
+                                                              startDate,
+                                                              endDate);
+    jdbcTemplate.update(insertRowToAutoTransfersSql);
+  }
 }
