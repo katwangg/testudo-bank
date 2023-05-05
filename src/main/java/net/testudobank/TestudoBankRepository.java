@@ -178,38 +178,6 @@ public class TestudoBankRepository {
     }
   }
 
-  /* AUTOTRANSFERS getters and setters */
-
-  public static String getAutoTransferStartDate(JdbcTemplate jdbcTemplate, String customerID, int transferID) {
-    String getAutoTransferStartDateSql = String.format("SELECT StartDate FROM AutoTransfers WHERE CustomerID='%s' AND TransferID=%d;", customerID, transferID);
-    String autoTransferStartDate = jdbcTemplate.queryForObject(getAutoTransferStartDateSql, String.class); //is requiredType correct??
-    return autoTransferStartDate;
-  }
-
-  public static String getAutoTransferEndDate(JdbcTemplate jdbcTemplate, String customerID, int transferID) {
-    String getAutoTransferEndDateSql = String.format("SELECT EndDate FROM AutoTransfers WHERE CustomerID='%s' AND TransferID=%d;", customerID, transferID);
-    String autoTransferEndDate = jdbcTemplate.queryForObject(getAutoTransferEndDateSql, String.class); //is requiredType correct??
-    return autoTransferEndDate;
-  }
-
-  public static String getAutoTransferFrequency(JdbcTemplate jdbcTemplate, String customerID, int transferID) {
-    String getAutoTransferFrequencySql = String.format("SELECT Frequency FROM AutoTransfers WHERE CustomerID='%s' AND TransferID=%d;", customerID, transferID);
-    String autoTransferFrequency = jdbcTemplate.queryForObject(getAutoTransferFrequencySql, String.class);
-    return autoTransferFrequency;
-  }
-
-  public static int getAutoTransferAmtInPennies(JdbcTemplate jdbcTemplate, String customerID, int transferID) {
-    String getAutoTransferAmtInPenniesSql = String.format("SELECT TransferAmt FROM AutoTransfers WHERE CustomerID='%s' AND TransferID=%d;", customerID, transferID);
-    int autoTransferAmtInPennies = jdbcTemplate.queryForObject(getAutoTransferAmtInPenniesSql, Integer.class);
-    return autoTransferAmtInPennies;
-  }
-
-  public static String getAutoTransferRecipient(JdbcTemplate jdbcTemplate, String customerID, int transferID) {
-    String getAutoTransferRecipientIDSql = String.format("SELECT RecipientID FROM AutoTransfers WHERE CustomerID='%s' AND TransferID=%d;", customerID, transferID);
-    String autoTransferRecipientID = jdbcTemplate.queryForObject(getAutoTransferRecipientIDSql, String.class);
-    return autoTransferRecipientID;
-  }
-
   public static void insertRowToAutoTransfersTable(JdbcTemplate jdbcTemplate, String customerID, String recipientID, String frequency, int amtInPennies, String startDate, String endDate) {
     String insertRowToAutoTransfersSql = String.format("INSERT INTO AutoTransfers VALUES ('%s', '%s', '%s', %d, '%s', '%s');",
                                                               customerID,

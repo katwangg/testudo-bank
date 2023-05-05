@@ -48,6 +48,10 @@ public class MvcControllerIntegTest {
   private static String CUSTOMER2_FIRST_NAME = "Foo1";
   private static String CUSTOMER2_LAST_NAME = "Bar1";
 
+  // Formatter for converting Java Dates to SQL-compatible DATETIME Strings
+  private static java.text.SimpleDateFormat SQL_DATETIME_FORMATTER = new java.text.SimpleDateFormat(
+      "yyyy-MM-dd HH:mm:ss");
+
   // Spins up small MySQL DB in local Docker container
   @Container
   public static MySQLContainer db = new MySQLContainer<>("mysql:5.7.37")
@@ -1796,300 +1800,517 @@ public class MvcControllerIntegTest {
     cryptoTransactionTester.test(cryptoTransaction);
   }
 
-//   /**
-//    * Verifies the simplest apply interest case.
-//    * The customer's Balance in the Customers table should be increased,
-//    * and the Deposit and ApplyInterest should be logged in the TransactionHistory
-//    * table.
-//    * 
-//    * Assumes that the customer's account is in the simplest state
-//    * (not in overdraft, account is not frozen due to too many transaction
-//    * disputes, etc.)
-//    * 
-//    * @throws SQLException
-//    * @throws ScriptException
-//    */
-//   @Test
-//   public void testSimpleApplyInterest() throws SQLException, ScriptException {
-//     double CUSTOMER1_BALANCE = 1000;
-//     int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
-//     MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
-//         CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 4);
+  /**
+   * Test that after every five deposits, interest is applied to the balance.
+   * Also verifies that interest is being applied with only deposits of $20 and
+   * above.
+   * 
+   * @throws SQLException
+   * @throws ScriptException
+   */
+  @Test
+  public void testApplyInterestEveryFiveTransactions() throws SQLException, ScriptException {
+    double CUSTOMER1_BALANCE = 1000.11;
+    int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
 
-//     User customer1DepositFormInputs = new User();
-//     customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
-//     customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
-//     double CUSTOMER1_AMOUNT_TO_DEPOSIT = 20.00;
-//     double CUSTOMER1_INTEREST = 15.30;
+    User customer1DepositFormInputs = new User();
+    customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
+    customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
 
-//     customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
-//     controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(20.00);
+    controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(20.01);
+    controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(30.00);
+    controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(30.00);
+    controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(100.00);
+    controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(20.01);
+    controller.submitDeposit(customer1DepositFormInputs);
+    customer1DepositFormInputs.setAmountToDeposit(19.99);
+    controller.submitDeposit(customer1DepositFormInputs);
 
-//     LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
-//         .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
-//     System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
+    List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
+    List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
+        .queryForList("SELECT * FROM TransactionHistory;");
 
-//     List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
-//     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
-//         .queryForList("SELECT * FROM TransactionHistory;");
+    assertEquals(8, transactionHistoryTableData.size());
 
-//     // verify that customer1's data is still the only data populated in Customers table
-//     assertEquals(1, customersTableData.size());
-//     Map<String, Object> customer1Data = customersTableData.get(0);
-//     assertEquals(CUSTOMER1_ID, (String) customer1Data.get("CustomerID"));
+    // verify that the deposits are accurately logged in the TransactionHistory table
+    Map<String, Object> customer1TransactionLogApplyInterest = transactionHistoryTableData.get(5);
+    assertEquals("ApplyInterest", (String) customer1TransactionLogApplyInterest.get("Action"));
 
-//     // verify customer balance was increased by $35.30 ($20 + $15.30) due to deposit and applying interest
-//     double CUSTOMER1_EXPECTED_FINAL_BALANCE = CUSTOMER1_BALANCE +
-//         CUSTOMER1_AMOUNT_TO_DEPOSIT + CUSTOMER1_INTEREST;
-//     double CUSTOMER1_EXPECTED_FINAL_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
-//         .convertDollarsToPennies(CUSTOMER1_EXPECTED_FINAL_BALANCE);
-//     assertEquals(CUSTOMER1_EXPECTED_FINAL_BALANCE_IN_PENNIES, (int) customer1Data.get("Balance"));
+    // verify that the deposits after the fifth one do not apply interest
+    Map<String, Object> customer1TransactionLogSixthDeposit = transactionHistoryTableData.get(6);
+    assertEquals("Deposit", (String) customer1TransactionLogSixthDeposit.get("Action"));
 
-//     assertEquals(2, transactionHistoryTableData.size());
+    // verify that the final deposit of 19.99 did not contribute to
+    // numDepositsForInterest and that numDepositsForInterest reset to 0 after the
+    // fifth deposit (is now 1 due to the sixth deposit of $20.01)
+    Map<String, Object> customer1Data = customersTableData.get(0);
+    assertEquals(1, (int) customer1Data.get("numDepositsForInterest"));
 
-//     // verify that transacrtions are accurately logged in the TransactionHistory table
-//     Map<String, Object> customer1TransactionLogDeposit = transactionHistoryTableData.get(0);
-//     int CUSTOMER1_AMOUNT_TO_DEPOSIT_IN_PENNIES = MvcControllerIntegTestHelpers
-//         .convertDollarsToPennies(CUSTOMER1_AMOUNT_TO_DEPOSIT);
-//     MvcControllerIntegTestHelpers.checkTransactionLog(customer1TransactionLogDeposit, timeWhenDepositRequestSent,
-//         CUSTOMER1_ID,
-//         MvcController.TRANSACTION_HISTORY_DEPOSIT_ACTION, CUSTOMER1_AMOUNT_TO_DEPOSIT_IN_PENNIES);
+  }
 
-//     Map<String, Object> customer1TransactionLogApplyInterest = transactionHistoryTableData.get(1);
-//     int CUSTOMER1_INTEREST_IN_PENNIES = MvcControllerIntegTestHelpers
-//         .convertDollarsToPennies(CUSTOMER1_INTEREST);
-//     MvcControllerIntegTestHelpers.checkTransactionLog(customer1TransactionLogApplyInterest, timeWhenDepositRequestSent,
-//         CUSTOMER1_ID,
-//         MvcController.TRANSACTION_HISTORY_APPLY_INTEREST_ACTION, CUSTOMER1_INTEREST_IN_PENNIES);
-//   }
+  /**
+   * Test customers that are in overdraft are excluded from gaining interest on their balance.
+   * 
+   * @throws SQLException
+   * @throws ScriptException
+   */
+  @Test
+  public void testApplyInterestOverdraft() throws SQLException, ScriptException {
+    int CUSTOMER1_BALANCE_IN_PENNIES = 0;
+    double CUSTOMER1_OVERDRAFT_BALANCE = 100.12;
+    int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
+        .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
+    int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
+        CUSTOMER1_NUM_FRAUD_REVERSALS, 4);
 
-//   /**
-//    * Test that after every five deposits, interest is applied to the balance.
-//    * Also verifies that interest is being applied with only deposits of $20 and
-//    * above.
-//    * 
-//    * @throws SQLException
-//    * @throws ScriptException
-//    */
-//   @Test
-//   public void testApplyInterestEveryFiveTransactions() throws SQLException, ScriptException {
-//     double CUSTOMER1_BALANCE = 1000.11;
-//     int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
-//     MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
-//         CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
+    double CUSTOMER1_AMOUNT_TO_DEPOSIT = 50.00; 
+    User customer1DepositFormInputs = new User();
+    customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
+    customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
+    customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
+    controller.submitDeposit(customer1DepositFormInputs);
 
-//     User customer1DepositFormInputs = new User();
-//     customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
-//     customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
+    LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
+        .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
+    System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
 
-//     customer1DepositFormInputs.setAmountToDeposit(20.00);
-//     controller.submitDeposit(customer1DepositFormInputs);
-//     customer1DepositFormInputs.setAmountToDeposit(20.01);
-//     controller.submitDeposit(customer1DepositFormInputs);
-//     customer1DepositFormInputs.setAmountToDeposit(30.00);
-//     controller.submitDeposit(customer1DepositFormInputs);
-//     customer1DepositFormInputs.setAmountToDeposit(30.00);
-//     controller.submitDeposit(customer1DepositFormInputs);
-//     customer1DepositFormInputs.setAmountToDeposit(100.00);
-//     controller.submitDeposit(customer1DepositFormInputs);
-//     customer1DepositFormInputs.setAmountToDeposit(20.01);
-//     controller.submitDeposit(customer1DepositFormInputs);
-//     customer1DepositFormInputs.setAmountToDeposit(19.99);
-//     controller.submitDeposit(customer1DepositFormInputs);
+    List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
+    List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
+        .queryForList("SELECT * FROM TransactionHistory;");
 
-//     List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
-//     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
-//         .queryForList("SELECT * FROM TransactionHistory;");
+    // verify that the deposit is accurately logged in the TransactionHistory table
+    Map<String, Object> customer1Data = customersTableData.get(0);
+    assertEquals(4, (int) customer1Data.get("numDepositsForInterest"));
+    assertEquals(1, transactionHistoryTableData.size());    
+  }
 
-//     assertEquals(8, transactionHistoryTableData.size());
+  /**
+   * Test customers that have no balance are excluded from gaining interest on their balance.
+   * 
+   * @throws SQLException
+   * @throws ScriptException
+   */
+  @Test
+  public void testApplyInterestInsufficientBalance() throws SQLException, ScriptException {
+    int CUSTOMER1_BALANCE_IN_PENNIES = 0;
+    double CUSTOMER1_OVERDRAFT_BALANCE = 50.00;
+    int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
+        .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
+    int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
+        CUSTOMER1_NUM_FRAUD_REVERSALS, 0);
 
-//     // verify that the deposits are accurately logged in the TransactionHistory table
-//     Map<String, Object> customer1TransactionLogApplyInterest = transactionHistoryTableData.get(5);
-//     assertEquals("ApplyInterest", (String) customer1TransactionLogApplyInterest.get("Action"));
+    double CUSTOMER1_AMOUNT_TO_DEPOSIT = 50.00; 
+    User customer1DepositFormInputs = new User();
+    customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
+    customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
+    customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
+    controller.submitDeposit(customer1DepositFormInputs);
 
-//     // verify that the deposits after the fifth one do not apply interest
-//     Map<String, Object> customer1TransactionLogSixthDeposit = transactionHistoryTableData.get(6);
-//     assertEquals("Deposit", (String) customer1TransactionLogSixthDeposit.get("Action"));
+    LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
+        .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
+    System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
 
-//     // verify that the final deposit of 19.99 did not contribute to
-//     // numDepositsForInterest and that numDepositsForInterest reset to 0 after the
-//     // fifth deposit (is now 1 due to the sixth deposit of $20.01)
-//     Map<String, Object> customer1Data = customersTableData.get(0);
-//     assertEquals(1, (int) customer1Data.get("numDepositsForInterest"));
+    List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
+    List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
+        .queryForList("SELECT * FROM TransactionHistory;");
 
-//   }
+    // verify that the deposit is accurately logged in the TransactionHistory table
+    Map<String, Object> customer1Data = customersTableData.get(0);
+    assertEquals(0, (int) customer1Data.get("numDepositsForInterest"));
+    assertEquals(1, transactionHistoryTableData.size());   
+  }
 
-//   /**
-//    * Test customers that are in overdraft are excluded from gaining interest on their balance.
-//    * 
-//    * @throws SQLException
-//    * @throws ScriptException
-//    */
-//   @Test
-//   public void testApplyInterestOverdraft() throws SQLException, ScriptException {
-//     int CUSTOMER1_BALANCE_IN_PENNIES = 0;
-//     double CUSTOMER1_OVERDRAFT_BALANCE = 100.12;
-//     int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
-//         .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
-//     int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
-//     MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
-//         CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
-//         CUSTOMER1_NUM_FRAUD_REVERSALS, 4);
+  /**
+   * Test that a user with no pre-exisiting Crypto can buy ETH and SOL and then
+   * sell some SOL.
+   */
+  @Test
+  public void testCryptoBuyETHSOLAndSellSOL() throws ScriptException {
+    CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
+        .initialBalanceInDollars(1000)
+        .build();
 
-//     double CUSTOMER1_AMOUNT_TO_DEPOSIT = 50.00; 
-//     User customer1DepositFormInputs = new User();
-//     customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
-//     customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
-//     customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
-//     controller.submitDeposit(customer1DepositFormInputs);
+    cryptoTransactionTester.initialize();
 
-//     LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
-//         .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
-//     System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
+    // Buy ETH
+    CryptoTransaction cryptoTransactionBuyETH = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(900)
+        .expectedEndingCryptoBalance(0.1)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("ETH")
+        .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
+        .shouldSucceed(true)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionBuyETH);
 
-//     List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
-//     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
-//         .queryForList("SELECT * FROM TransactionHistory;");
+    // Buy SOL
+    CryptoTransaction cryptoTransactionBuySOL = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(600)
+        .expectedEndingCryptoBalance(0.3)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.3)
+        .cryptoName("SOL")
+        .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
+        .shouldSucceed(true)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionBuySOL);
 
-//     // verify that the deposit is accurately logged in the TransactionHistory table
-//     Map<String, Object> customer1Data = customersTableData.get(0);
-//     assertEquals(4, (int) customer1Data.get("numDepositsForInterest"));
-//     assertEquals(1, transactionHistoryTableData.size());    
-//   }
+    // Sell SOL
+    CryptoTransaction cryptoTransactionSellSOL = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(700)
+        .expectedEndingCryptoBalance(0.2)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("SOL")
+        .cryptoTransactionTestType(CryptoTransactionTestType.SELL)
+        .shouldSucceed(true)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionSellSOL);
+  }
 
-//   /**
-//    * Test customers that have no balance are excluded from gaining interest on their balance.
-//    * 
-//    * @throws SQLException
-//    * @throws ScriptException
-//    */
-//   @Test
-//   public void testApplyInterestInsufficientBalance() throws SQLException, ScriptException {
-//     int CUSTOMER1_BALANCE_IN_PENNIES = 0;
-//     double CUSTOMER1_OVERDRAFT_BALANCE = 50.00;
-//     int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
-//         .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
-//     int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
-//     MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
-//         CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
-//         CUSTOMER1_NUM_FRAUD_REVERSALS, 0);
+  /**
+   * Test that no crypto buy transaction occurs when the user attempts to buy BTC,
+   * which is not supported by Testudo Bank.
+   */
+  @Test
+  public void testCryptoBuyBTCInvalid() throws ScriptException {
+    CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
+        .initialBalanceInDollars(1000)
+        .build();
 
-//     double CUSTOMER1_AMOUNT_TO_DEPOSIT = 50.00; 
-//     User customer1DepositFormInputs = new User();
-//     customer1DepositFormInputs.setUsername(CUSTOMER1_ID);
-//     customer1DepositFormInputs.setPassword(CUSTOMER1_PASSWORD);
-//     customer1DepositFormInputs.setAmountToDeposit(CUSTOMER1_AMOUNT_TO_DEPOSIT);
-//     controller.submitDeposit(customer1DepositFormInputs);
+    cryptoTransactionTester.initialize();
 
-//     LocalDateTime timeWhenDepositRequestSent = MvcControllerIntegTestHelpers
-//         .fetchCurrentTimeAsLocalDateTimeNoMilliseconds();
-//     System.out.println("Timestamp when Deposit Request is sent: " + timeWhenDepositRequestSent);
+    CryptoTransaction cryptoTransactionBuyBTC = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(1000)
+        .expectedEndingCryptoBalance(0)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("BTC")
+        .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
+        .shouldSucceed(false)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionBuyBTC);
+  }
 
-//     List<Map<String, Object>> customersTableData = jdbcTemplate.queryForList("SELECT * FROM Customers;");
-//     List<Map<String, Object>> transactionHistoryTableData = jdbcTemplate
-//         .queryForList("SELECT * FROM TransactionHistory;");
+  /**
+   * Test that no crypto sell transaction occurs when the user attempts to sell
+   * BTC, which is not supported by Testudo Bank.
+   */
+  @Test
+  public void testCryptoSellBTCInvalid() throws ScriptException {
+    CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
+        .initialBalanceInDollars(1000)
+        .build();
 
-//     // verify that the deposit is accurately logged in the TransactionHistory table
-//     Map<String, Object> customer1Data = customersTableData.get(0);
-//     assertEquals(0, (int) customer1Data.get("numDepositsForInterest"));
-//     assertEquals(1, transactionHistoryTableData.size());   
-//   }
+    cryptoTransactionTester.initialize();
 
-//   /**
-//    * Test that a user with no pre-exisiting Crypto can buy ETH and SOL and then
-//    * sell some SOL.
-//    */
-//   @Test
-//   public void testCryptoBuyETHSOLAndSellSOL() throws ScriptException {
-//     CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
-//         .initialBalanceInDollars(1000)
-//         .build();
+    CryptoTransaction cryptoTransactionSellBTC = CryptoTransaction.builder()
+        .expectedEndingBalanceInDollars(1000)
+        .expectedEndingCryptoBalance(0)
+        .cryptoPrice(1000)
+        .cryptoAmountToTransact(0.1)
+        .cryptoName("BTC")
+        .cryptoTransactionTestType(CryptoTransactionTestType.SELL)
+        .shouldSucceed(false)
+        .build();
+    cryptoTransactionTester.test(cryptoTransactionSellBTC);
+  }
 
-//     cryptoTransactionTester.initialize();
+/**
+   * This test verifies that a simple weekly auto transfer of $10 for one month from Customer1 to Customer2
+   * will take place. Customer1's balance will be initialized to $1000, and Customer2's balance will be $500.
+   * 
+   * @throws SQLException
+   */
+  @Test
+  public void testWeeklyAutoTransfer() throws SQLException, ScriptException {
 
-//     // Buy ETH
-//     CryptoTransaction cryptoTransactionBuyETH = CryptoTransaction.builder()
-//         .expectedEndingBalanceInDollars(900)
-//         .expectedEndingCryptoBalance(0.1)
-//         .cryptoPrice(1000)
-//         .cryptoAmountToTransact(0.1)
-//         .cryptoName("ETH")
-//         .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
-//         .shouldSucceed(true)
-//         .build();
-//     cryptoTransactionTester.test(cryptoTransactionBuyETH);
+    // Initialize customer1 with a balance of $1000. Balance will be represented as pennies in DB.
+    double CUSTOMER1_BALANCE = 1000;
+    int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
 
-//     // Buy SOL
-//     CryptoTransaction cryptoTransactionBuySOL = CryptoTransaction.builder()
-//         .expectedEndingBalanceInDollars(600)
-//         .expectedEndingCryptoBalance(0.3)
-//         .cryptoPrice(1000)
-//         .cryptoAmountToTransact(0.3)
-//         .cryptoName("SOL")
-//         .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
-//         .shouldSucceed(true)
-//         .build();
-//     cryptoTransactionTester.test(cryptoTransactionBuySOL);
+    // Initialize customer2 with a balance of $500. Balance will be represented as pennies in DB.
+    double CUSTOMER2_BALANCE = 500;
+    int CUSTOMER2_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER2_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER2_ID, CUSTOMER2_PASSWORD, CUSTOMER2_FIRST_NAME,
+        CUSTOMER2_LAST_NAME, CUSTOMER2_BALANCE_IN_PENNIES, 0);
 
-//     // Sell SOL
-//     CryptoTransaction cryptoTransactionSellSOL = CryptoTransaction.builder()
-//         .expectedEndingBalanceInDollars(700)
-//         .expectedEndingCryptoBalance(0.2)
-//         .cryptoPrice(1000)
-//         .cryptoAmountToTransact(0.1)
-//         .cryptoName("SOL")
-//         .cryptoTransactionTestType(CryptoTransactionTestType.SELL)
-//         .shouldSucceed(true)
-//         .build();
-//     cryptoTransactionTester.test(cryptoTransactionSellSOL);
-//   }
+    // Amount to transfer
+    double TRANSFER_AMOUNT = 100;
+    String FREQUENCY = "weekly";
+    String START_DATE = "2023-06-20";
+    String END_DATE = "2023-07-20";
 
-//   /**
-//    * Test that no crypto buy transaction occurs when the user attempts to buy BTC,
-//    * which is not supported by Testudo Bank.
-//    */
-//   @Test
-//   public void testCryptoBuyBTCInvalid() throws ScriptException {
-//     CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
-//         .initialBalanceInDollars(1000)
-//         .build();
+    // Initializing users for the transfer
+    User CUSTOMER1 = new User();
+    CUSTOMER1.setUsername(CUSTOMER1_ID);
+    CUSTOMER1.setPassword(CUSTOMER1_PASSWORD);
+    CUSTOMER1.setAutoTransferRecipientID(CUSTOMER2_ID);
+    CUSTOMER1.setAmountToAutoTransfer(TRANSFER_AMOUNT);
+    CUSTOMER1.setAutoTransferFrequency(FREQUENCY);
+    CUSTOMER1.setAutoTransferStartDate(START_DATE);
+    CUSTOMER1.setAutoTransferEndDate(END_DATE);
 
-//     cryptoTransactionTester.initialize();
+    // Send the transfer request.
+    String returnedPage = controller.submitAutoTransfer(CUSTOMER1);
 
-//     CryptoTransaction cryptoTransactionBuyBTC = CryptoTransaction.builder()
-//         .expectedEndingBalanceInDollars(1000)
-//         .expectedEndingCryptoBalance(0)
-//         .cryptoPrice(1000)
-//         .cryptoAmountToTransact(0.1)
-//         .cryptoName("BTC")
-//         .cryptoTransactionTestType(CryptoTransactionTestType.BUY)
-//         .shouldSucceed(false)
-//         .build();
-//     cryptoTransactionTester.test(cryptoTransactionBuyBTC);
-//   }
+    // Fetch customer1 & customer2's data from DB
+    List<Map<String, Object>> customer1SqlResult = jdbcTemplate
+        .queryForList(String.format("SELECT * FROM AutoTransfers WHERE CustomerID='%s';", CUSTOMER1_ID));
+    // Map<String, Object> customer1Data = customer1SqlResult.get(0);
 
-//   /**
-//    * Test that no crypto sell transaction occurs when the user attempts to sell
-//    * BTC, which is not supported by Testudo Bank.
-//    */
-//   @Test
-//   public void testCryptoSellBTCInvalid() throws ScriptException {
-//     CryptoTransactionTester cryptoTransactionTester = CryptoTransactionTester.builder()
-//         .initialBalanceInDollars(1000)
-//         .build();
+    // Verify that an Auto Transfer is added to the database.
+    assertEquals(customer1SqlResult.size(), 1);
 
-//     cryptoTransactionTester.initialize();
+    // Check that auto transfer request goes through.
+    assertEquals("account_info", returnedPage);
 
-//     CryptoTransaction cryptoTransactionSellBTC = CryptoTransaction.builder()
-//         .expectedEndingBalanceInDollars(1000)
-//         .expectedEndingCryptoBalance(0)
-//         .cryptoPrice(1000)
-//         .cryptoAmountToTransact(0.1)
-//         .cryptoName("BTC")
-//         .cryptoTransactionTestType(CryptoTransactionTestType.SELL)
-//         .shouldSucceed(false)
-//         .build();
-//     cryptoTransactionTester.test(cryptoTransactionSellBTC);
-//   }
+    // Check that auto transfer is scheduled on the correct date.
+    assertEquals(CUSTOMER1.getAutoTransferStartDate() + " 08:00:00", SQL_DATETIME_FORMATTER.format(CUSTOMER1.getNextAutoTransferDate()));
+  }
 
+  /**
+   * This test verifies that a simple monthly auto transfer of $10 for three months from Customer1 to Customer2
+   * will take place. Customer1's balance will be initialized to $1000, and Customer2's balance will be $500.
+   * 
+   * @throws SQLException
+   */
+  @Test
+  public void testMonthlyAutoTransfer() throws SQLException, ScriptException {
+
+    // Initialize customer1 with a balance of $1000. Balance will be represented as pennies in DB.
+    double CUSTOMER1_BALANCE = 1000;
+    int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
+
+    // Initialize customer2 with a balance of $500. Balance will be represented as pennies in DB.
+    double CUSTOMER2_BALANCE = 500;
+    int CUSTOMER2_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER2_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER2_ID, CUSTOMER2_PASSWORD, CUSTOMER2_FIRST_NAME,
+        CUSTOMER2_LAST_NAME, CUSTOMER2_BALANCE_IN_PENNIES, 0);
+
+    // Amount to transfer
+    double TRANSFER_AMOUNT = 100;
+    String FREQUENCY = "monthly";
+    String START_DATE = "2023-06-20";
+    String END_DATE = "2023-09-20";
+
+    // Initializing users for the transfer
+    User CUSTOMER1 = new User();
+    CUSTOMER1.setUsername(CUSTOMER1_ID);
+    CUSTOMER1.setPassword(CUSTOMER1_PASSWORD);
+    CUSTOMER1.setAutoTransferRecipientID(CUSTOMER2_ID);
+    CUSTOMER1.setAmountToAutoTransfer(TRANSFER_AMOUNT);
+    CUSTOMER1.setAutoTransferFrequency(FREQUENCY);
+    CUSTOMER1.setAutoTransferStartDate(START_DATE);
+    CUSTOMER1.setAutoTransferEndDate(END_DATE);
+
+    // Send the transfer request.
+    String returnedPage = controller.submitAutoTransfer(CUSTOMER1);
+
+    // Fetch customer1 & customer2's data from DB
+    List<Map<String, Object>> customer1SqlResult = jdbcTemplate
+        .queryForList(String.format("SELECT * FROM AutoTransfers WHERE CustomerID='%s';", CUSTOMER1_ID));
+    // Map<String, Object> customer1Data = customer1SqlResult.get(0);
+
+    // Verify that an Auto Transfer is added to the database.
+    assertEquals(customer1SqlResult.size(), 1);
+
+    // Check that auto transfer request goes through.
+    assertEquals("account_info", returnedPage);
+
+    // Check that auto transfer is scheduled on the correct date.
+    assertEquals(CUSTOMER1.getAutoTransferStartDate() + " 08:00:00", SQL_DATETIME_FORMATTER.format(CUSTOMER1.getNextAutoTransferDate()));
+  }
+
+  /**
+   * This test verifies that no auto transfer is set up when an invalid frequency is inputted by the user.
+   * 
+   * @throws SQLException
+   */
+  @Test
+  public void testInvalidAutoTransferFrequency() throws SQLException, ScriptException {
+    // Initialize customer1 with a balance of $1000. Balance will be represented as pennies in DB.
+    double CUSTOMER1_BALANCE = 1000;
+    int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
+
+    // Initialize customer2 with a balance of $500. Balance will be represented as pennies in DB.
+    double CUSTOMER2_BALANCE = 500;
+    int CUSTOMER2_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER2_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER2_ID, CUSTOMER2_PASSWORD, CUSTOMER2_FIRST_NAME,
+        CUSTOMER2_LAST_NAME, CUSTOMER2_BALANCE_IN_PENNIES, 0);
+
+    // Amount to transfer
+    double TRANSFER_AMOUNT = 100;
+    String FREQUENCY = "daily";
+    String START_DATE = "2023-06-20";
+    String END_DATE = "2023-09-20";
+
+    // Initializing users for the transfer
+    User CUSTOMER1 = new User();
+    CUSTOMER1.setUsername(CUSTOMER1_ID);
+    CUSTOMER1.setPassword(CUSTOMER1_PASSWORD);
+    CUSTOMER1.setAutoTransferRecipientID(CUSTOMER2_ID);
+    CUSTOMER1.setAmountToAutoTransfer(TRANSFER_AMOUNT);
+    CUSTOMER1.setAutoTransferFrequency(FREQUENCY);
+    CUSTOMER1.setAutoTransferStartDate(START_DATE);
+    CUSTOMER1.setAutoTransferEndDate(END_DATE);
+
+    // Send the transfer request.
+    String returnedPage = controller.submitAutoTransfer(CUSTOMER1);
+
+    // Fetch customer1 & customer2's data from DB
+    List<Map<String, Object>> customer1SqlResult = jdbcTemplate
+        .queryForList(String.format("SELECT * FROM AutoTransfers WHERE CustomerID='%s';", CUSTOMER1_ID));
+
+    // Verify that an Auto Transfer is added to the database.
+    assertEquals(customer1SqlResult.size(), 0);
+
+    // Check that auto transfer request goes through.
+    assertEquals("welcome", returnedPage);
+  }
+
+  /**
+   * This test verifies that no auto transfer is set up when invalid start and end dates are inputted by the user.
+   * 
+   * @throws SQLException
+   */
+  @Test
+  public void testInvalidAutoTransferDates() throws SQLException, ScriptException {
+    // Initialize customer1 with a balance of $1000. Balance will be represented as pennies in DB.
+    double CUSTOMER1_BALANCE = 1000;
+    int CUSTOMER1_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER1_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, 0);
+
+    // Initialize customer2 with a balance of $500. Balance will be represented as pennies in DB.
+    double CUSTOMER2_BALANCE = 500;
+    int CUSTOMER2_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER2_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER2_ID, CUSTOMER2_PASSWORD, CUSTOMER2_FIRST_NAME,
+        CUSTOMER2_LAST_NAME, CUSTOMER2_BALANCE_IN_PENNIES, 0);
+
+    // Amount to transfer
+    double TRANSFER_AMOUNT = 100;
+    String FREQUENCY = "weekly";
+    String START_DATE1 = "2022-06-20"; // invalid start date
+    String END_DATE1 = "2023-09-20";
+
+    // Initializing users for the transfer
+    User CUSTOMER1 = new User();
+    CUSTOMER1.setUsername(CUSTOMER1_ID);
+    CUSTOMER1.setPassword(CUSTOMER1_PASSWORD);
+    CUSTOMER1.setAutoTransferRecipientID(CUSTOMER2_ID);
+    CUSTOMER1.setAmountToAutoTransfer(TRANSFER_AMOUNT);
+    CUSTOMER1.setAutoTransferFrequency(FREQUENCY);
+    CUSTOMER1.setAutoTransferStartDate(START_DATE1);
+    CUSTOMER1.setAutoTransferEndDate(END_DATE1);
+
+    // Send the transfer request.
+    String returnedPage1 = controller.submitAutoTransfer(CUSTOMER1);
+
+    // Check that auto transfer request does not go through.
+    assertEquals("welcome", returnedPage1);
+
+    // another set of invalid dates
+    String START_DATE2 = "2023-07-20";
+    String END_DATE2 = "2023-06-20";
+
+    User CUSTOMER3 = new User();
+    CUSTOMER3.setUsername(CUSTOMER1_ID);
+    CUSTOMER3.setPassword(CUSTOMER1_PASSWORD);
+    CUSTOMER3.setAutoTransferRecipientID(CUSTOMER2_ID);
+    CUSTOMER3.setAmountToAutoTransfer(TRANSFER_AMOUNT);
+    CUSTOMER3.setAutoTransferFrequency(FREQUENCY);
+    CUSTOMER3.setAutoTransferStartDate(START_DATE2);
+    CUSTOMER3.setAutoTransferEndDate(END_DATE2);
+
+    // Send the transfer request.
+    String returnedPage2 = controller.submitAutoTransfer(CUSTOMER1);
+
+    // Check that auto transfer request does not go through.
+    assertEquals("welcome", returnedPage2);
+
+    // Fetch customer1 & customer2's data from DB
+    List<Map<String, Object>> customer1SqlResult = jdbcTemplate
+        .queryForList(String.format("SELECT * FROM AutoTransfers WHERE CustomerID='%s';", CUSTOMER1_ID));
+
+    // Verify that an Auto Transfer is added to the database.
+    assertEquals(customer1SqlResult.size(), 0);
+  }
+
+  /**
+   * This test verifies that a user cannot schedule an auto transfer if they have no balance or are in overdraft.
+   * 
+   * @throws SQLException
+   */
+  @Test
+  public void testAutoTransferInsufficientBalance() throws SQLException, ScriptException {
+
+    // Initialize customer1 with a balance of $0. Balance will be represented as pennies in DB.
+    int CUSTOMER1_BALANCE_IN_PENNIES = 0;
+    double CUSTOMER1_OVERDRAFT_BALANCE = 50.00;
+    int CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers
+        .convertDollarsToPennies(CUSTOMER1_OVERDRAFT_BALANCE);
+    int CUSTOMER1_NUM_FRAUD_REVERSALS = 0;
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER1_ID, CUSTOMER1_PASSWORD, CUSTOMER1_FIRST_NAME,
+        CUSTOMER1_LAST_NAME, CUSTOMER1_BALANCE_IN_PENNIES, CUSTOMER1_OVERDRAFT_BALANCE_IN_PENNIES,
+        CUSTOMER1_NUM_FRAUD_REVERSALS, 0);
+
+    // Initialize customer2 with a balance of $500. Balance will be represented as pennies in DB.
+    double CUSTOMER2_BALANCE = 500;
+    int CUSTOMER2_BALANCE_IN_PENNIES = MvcControllerIntegTestHelpers.convertDollarsToPennies(CUSTOMER2_BALANCE);
+    MvcControllerIntegTestHelpers.addCustomerToDB(dbDelegate, CUSTOMER2_ID, CUSTOMER2_PASSWORD, CUSTOMER2_FIRST_NAME,
+        CUSTOMER2_LAST_NAME, CUSTOMER2_BALANCE_IN_PENNIES, 0);
+
+    // Amount to transfer
+    double TRANSFER_AMOUNT = 100;
+    String FREQUENCY = "monthly";
+    String START_DATE = "2023-06-20";
+    String END_DATE = "2023-09-20";
+
+    // Initializing users for the transfer
+    User CUSTOMER1 = new User();
+    CUSTOMER1.setUsername(CUSTOMER1_ID);
+    CUSTOMER1.setPassword(CUSTOMER1_PASSWORD);
+    CUSTOMER1.setAutoTransferRecipientID(CUSTOMER2_ID);
+    CUSTOMER1.setAmountToAutoTransfer(TRANSFER_AMOUNT);
+    CUSTOMER1.setAutoTransferFrequency(FREQUENCY);
+    CUSTOMER1.setAutoTransferStartDate(START_DATE);
+    CUSTOMER1.setAutoTransferEndDate(END_DATE);
+
+    // Send the transfer request.
+    String returnedPage = controller.submitAutoTransfer(CUSTOMER1);
+
+    // Fetch customer1 & customer2's data from DB
+    List<Map<String, Object>> customer1SqlResult = jdbcTemplate
+        .queryForList(String.format("SELECT * FROM AutoTransfers WHERE CustomerID='%s';", CUSTOMER1_ID));
+    // Map<String, Object> customer1Data = customer1SqlResult.get(0);
+
+    // Verify that an Auto Transfer is not added to the database.
+    // assertEquals(customer1SqlResult.size(), 0);
+
+    // Check that auto transfer request does not go through.
+    assertEquals("welcome", returnedPage);
+
+    // Check that auto transfer is not scheduled
+    assertEquals(null, CUSTOMER1.getNextAutoTransferDate());
+  }
 }

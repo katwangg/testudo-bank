@@ -42,6 +42,7 @@
     <span>Transaction History: </span><span>${user.transactionHist}</span><br/>
     <span>Transfer History: </span><span>${user.transferHist}</span><br/>
     <span>Crypto History: </span><span>${user.cryptoHist}</span><br/>
+    <span>Scheduled Auto Transfers: </span><span>${user.autoTransferFrequency} transfer of ${user.amountToAutoTransfer} to ${user.autoTransferRecipientID} from ${user.autoTransferStartDate} to ${user.autoTransferEndDate} </span><br/>
     <br/>
     <a href='/deposit'>Deposit</a>
     <a href='/withdraw'>Withdraw</a>

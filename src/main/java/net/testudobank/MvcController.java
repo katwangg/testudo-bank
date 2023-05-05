@@ -13,8 +13,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.text.ParseException;
 import java.util.Calendar;
-import java.util.Timer;
-import java.util.TimerTask;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,6 +45,8 @@ public class MvcController {
   private final static int MAX_REVERSABLE_TRANSACTIONS_AGO = 3;
   private final static String HTML_LINE_BREAK = "<br/>";
   private final static String AUTOTRANSFER_TIME = "08:00:00";
+  private final static String WEEKLY_FREQUENCY = "weekly";
+  private final static String MONTHLY_FREQUENCY = "monthly";
   public static String TRANSACTION_HISTORY_DEPOSIT_ACTION = "Deposit";
   public static String TRANSACTION_HISTORY_WITHDRAW_ACTION = "Withdraw";
   public static String TRANSACTION_HISTORY_TRANSFER_SEND_ACTION = "TransferSend";
@@ -154,7 +154,8 @@ public class MvcController {
   }
 
   /**
-   * HTML GET request handler that serves the "autotransfer_form" page to the user.
+   * HTML GET request handler that serves the "autotransfer_form" page to the
+   * user.
    * An empty `User` object is also added to the Model as an Attribute to store
    * the user's transfer form input.
    * 
@@ -167,7 +168,6 @@ public class MvcController {
     model.addAttribute("user", user);
     return "autotransfer_form";
   }
-
 
   /**
    * HTML GET request handler that serves the "buycrypto_form" page to the user.
@@ -298,8 +298,81 @@ public class MvcController {
     } catch (ParseException ex) {
       ex.printStackTrace();
     }
-    
+
     return date;
+  }
+
+  // Helper method for performing automated transfers set up by the user
+  private String performAutoTransfer(User sender) {
+    // checks to see the customer you are transfering to exists
+    if (!TestudoBankRepository.doesCustomerExist(jdbcTemplate, sender.getAutoTransferRecipientID())) {
+      return "welcome";
+    }
+
+    String senderUserID = sender.getUsername();
+    String senderPasswordAttempt = sender.getPassword();
+    String senderPassword = TestudoBankRepository.getCustomerPassword(jdbcTemplate, senderUserID);
+
+    // creates new user for recipient
+    User recipient = new User();
+    String recipientUserID = sender.getAutoTransferRecipientID();
+    String recipientPassword = TestudoBankRepository.getCustomerPassword(jdbcTemplate, recipientUserID);
+    recipient.setUsername(recipientUserID);
+    recipient.setPassword(recipientPassword);
+
+    System.out.println("performAutoTransfer: done validating users");
+
+    // sets isTransfer to true for sender and recipient
+    sender.setTransfer(true);
+    recipient.setTransfer(true);
+
+    /// Invalid Input/State Handling ///
+
+    // unsuccessful login
+    if (senderPasswordAttempt.equals(senderPassword) == false) {
+      return "welcome";
+    }
+
+    // case where customer already has too many reversals
+    int numOfReversals = TestudoBankRepository.getCustomerNumberOfReversals(jdbcTemplate, senderUserID);
+    if (numOfReversals >= MAX_DISPUTES) {
+      return "welcome";
+    }
+
+    // case where customer tries to send money to themselves
+    if (sender.getAutoTransferRecipientID().equals(senderUserID)) {
+      return "welcome";
+    }
+
+    System.out.println("performAutoTransfer: init transfer");
+
+    // initialize variables for transfer amount
+    double transferAmount = sender.getAmountToAutoTransfer();
+    int transferAmountInPennies = convertDollarsToPennies(transferAmount);
+
+    // negative transfer amount is not allowed
+    if (transferAmount < 0) {
+      return "welcome";
+    }
+
+    String currentTime = SQL_DATETIME_FORMATTER.format(new java.util.Date()); // use same timestamp for all logs created
+                                                                              // by this transfer
+
+    // withdraw transfer amount from sender and deposit into recipient's account
+    sender.setAmountToWithdraw(transferAmount);
+    submitWithdraw(sender);
+
+    recipient.setAmountToDeposit(transferAmount);
+    submitDeposit(recipient);
+
+    System.out.println("performAutoTransfer: transfer complete");
+
+    // Inserting transfer into transfer history for both customers
+    TestudoBankRepository.insertRowToTransferLogsTable(jdbcTemplate, senderUserID, recipientUserID, currentTime,
+        transferAmountInPennies);
+    updateAccountInfo(sender);
+
+    return "account_info";
   }
 
   // HTML POST HANDLERS ////
@@ -960,31 +1033,18 @@ public class MvcController {
 
   }
 
-  // /**
-  //  * Creates an auto transfer
-  //  * 
-  //  * @param user
-  //  * @return "account_info" if transfer was created. Otherwise, redirect to "welcome"
-  //  *         page.
-  //  */
-  // public String createAutoTransfer(@ModelAttribute("user") User user) {
-
-
-
-  //   return "welcome";
-  // }
-
   /**
    * HTML POST request handler for the Auto Transfer Form page.
    * 
    * The same username+password handling from the login page is used.
    * 
-   * If the password attempt is correct, the users successfully creates an autotransfer
+   * If the password attempt is correct, the users successfully creates an
+   * autotransfer
    * If the password attempt is incorrect, the user is redirected to the "welcome"
    * page.
    * 
-   * Users can only have one auto transfer set up at all times
-   * 
+   * User can schedule an auto transfer on a weekly or monthly basis to a specific recipient of a specific amount.
+   *  
    * @param user
    * @return "account_info" page if login successful. Otherwise, redirect to
    *         "welcome" page.
@@ -1001,128 +1061,6 @@ public class MvcController {
     String senderPasswordAttempt = sender.getPassword();
     String senderPassword = TestudoBankRepository.getCustomerPassword(jdbcTemplate, senderUserID);
 
-    // // creates new user for recipient
-    // User recipient = new User();
-    String recipientUserID = sender.getAutoTransferRecipientID();
-    // String recipientPassword = TestudoBankRepository.getCustomerPassword(jdbcTemplate, recipientUserID);
-    // recipient.setUsername(recipientUserID);
-    // recipient.setPassword(recipientPassword);
-
-    // // sets isTransfer to true for sender and recipient
-    // sender.setTransfer(true);
-    // recipient.setTransfer(true);
-
-    /// Invalid Input/State Handling ///
-
-    // unsuccessful login
-    if (senderPasswordAttempt.equals(senderPassword) == false) {
-      return "welcome";
-    }
-
-    // case where customer already has too many reversals
-    int numOfReversals = TestudoBankRepository.getCustomerNumberOfReversals(jdbcTemplate, senderUserID);
-    if (numOfReversals >= MAX_DISPUTES) {
-      return "welcome";
-    }
-
-    // case where customer tries to send money to themselves
-    if (sender.getTransferRecipientID().equals(senderUserID)) {
-      return "welcome";
-    }
-
-    // initialize variables for transfer amount
-    double transferAmount = sender.getAmountToAutoTransfer();
-    int transferAmountInPennies = convertDollarsToPennies(transferAmount);
-
-    // negative transfer amount is not allowed
-    if (transferAmount < 0) {
-      return "welcome";
-    }
-
-    // initialize other variables for auto transfer
-    String autoTransferFrequency = sender.getAutoTransferFrequency(); // "weekly" or "monthly"
-    if (!autoTransferFrequency.equals("weekly") || !autoTransferFrequency.equals("monthly")) {
-      return "welcome";
-    }
-
-    String autoTransferStartDateTime = sender.getAutoTransferStartDate() + " " + AUTOTRANSFER_TIME;
-    String autoTransferEndDateTime = sender.getAutoTransferEndDate() + " " + AUTOTRANSFER_TIME;
-    Date autoTransferStartDate = stringToDate(autoTransferStartDateTime);
-    Date autoTransferEndDate = stringToDate(autoTransferEndDateTime);
-    
-    // check if the inputted date is valid
-    if (autoTransferStartDate.equals(null) || autoTransferEndDate.equals(null)) {
-      return "welcome";
-    }
-
-    // check if the inputted date is not in the past and the endDate is after startDate
-    Calendar currentDate = Calendar.getInstance();
-    Calendar transferStartDate = Calendar.getInstance();
-    Calendar transferEndDate = Calendar.getInstance();
-    transferStartDate.setTime(autoTransferStartDate);
-    transferEndDate.setTime(autoTransferEndDate);
-
-    if (transferStartDate.compareTo(transferEndDate) >= 0) { 
-      return "welcome";
-    }
-
-    if (currentDate.compareTo(transferStartDate) > 0 || currentDate.compareTo(transferEndDate) > 0) { 
-      return "welcome";
-    }
-
-    TestudoBankRepository.insertRowToAutoTransfersTable(jdbcTemplate, senderUserID, recipientUserID,autoTransferFrequency, transferAmountInPennies, autoTransferStartDateTime, autoTransferEndDateTime);
-    updateAccountInfo(sender);
-
-    return scheduleAutoTransfer(sender);
-  }
-  
-  // Scheduled an automated transfer task, returns user the scheduling is successful, the user is served the "account_info" page
-  private String scheduleAutoTransfer(User sender) {
-    String startDateString = sender.getAutoTransferStartDate();
-    String endDateString = sender.getAutoTransferEndDate();
-
-    Date transferStartDate = stringToDate(startDateString);
-    Date transferEndDate = stringToDate(endDateString);
-
-    // check if the inputted date is valid
-    if (transferStartDate.equals(null) || transferEndDate.equals(null)) {
-      return "welcome";
-    } 
-
-    AutoTransferScheduler scheduler = AutoTransferScheduler.schedule( new Runnable() { 
-      public void run() { 
-        performAutoTransfer(sender);
-      }
-    }, transferStartDate, transferEndDate, endDateString);
-
-    return "account_info";
-  }
-
-  // private class AutoTransfer implements Runnable {
-  //   private User sender;
-
-  //   public AutoTransfer(User sender) {
-  //     this.sender = sender;
-  //   }
-
-  //   @Override
-  //   public void run()
-  //   {
-  //     performAutoTransfer(sender);
-  //   }
-  // }
-  
-  // Helper method for performing auto transfers 
-  private String performAutoTransfer(User sender) {
-    // checks to see the customer you are transfering to exists
-    if (!TestudoBankRepository.doesCustomerExist(jdbcTemplate, sender.getAutoTransferRecipientID())) {
-      return "welcome";
-    }
-
-    String senderUserID = sender.getUsername();
-    String senderPasswordAttempt = sender.getPassword();
-    String senderPassword = TestudoBankRepository.getCustomerPassword(jdbcTemplate, senderUserID);
-
     // creates new user for recipient
     User recipient = new User();
     String recipientUserID = sender.getAutoTransferRecipientID();
@@ -1130,10 +1068,6 @@ public class MvcController {
     recipient.setUsername(recipientUserID);
     recipient.setPassword(recipientPassword);
 
-    // sets isTransfer to true for sender and recipient
-    sender.setTransfer(true);
-    recipient.setTransfer(true);
-
     /// Invalid Input/State Handling ///
 
     // unsuccessful login
@@ -1148,35 +1082,105 @@ public class MvcController {
     }
 
     // case where customer tries to send money to themselves
-    if (sender.getTransferRecipientID().equals(senderUserID)) {
+    if (sender.getAutoTransferRecipientID().equals(senderUserID)) {
       return "welcome";
     }
+
+     // customer cannot be in overdraft or have an empty balance
+     int userOverdraftInPennies = TestudoBankRepository.getCustomerOverdraftBalanceInPennies(jdbcTemplate, senderUserID);
+     int userBalanceInPennies = TestudoBankRepository.getCustomerCashBalanceInPennies(jdbcTemplate, senderUserID);
+     if (userOverdraftInPennies > 0 || userBalanceInPennies == 0) {
+       return "welcome";
+     }
 
     // initialize variables for transfer amount
     double transferAmount = sender.getAmountToAutoTransfer();
     int transferAmountInPennies = convertDollarsToPennies(transferAmount);
 
     // negative transfer amount is not allowed
-    if (transferAmount < 0) {
+    if (transferAmount <= 0) {
       return "welcome";
     }
 
-    String currentTime = SQL_DATETIME_FORMATTER.format(new java.util.Date()); // use same timestamp for all logs created
-                                                                              // by this transfer
+    System.out.println("AutoTransfer: VALID AMOUNT");
 
-    // withdraw transfer amount from sender and deposit into recipient's account
-    sender.setAmountToWithdraw(transferAmount);
-    submitWithdraw(sender);
+    // initialize other variables for auto transfer
+    String autoTransferFrequency = sender.getAutoTransferFrequency().toLowerCase().trim(); // "weekly" or "monthly"
 
-    recipient.setAmountToDeposit(transferAmount);
-    submitDeposit(recipient);
+    if (!autoTransferFrequency.equals(WEEKLY_FREQUENCY) && !autoTransferFrequency.equals(MONTHLY_FREQUENCY)) {
+      System.out.println("AutoTransfer: " + autoTransferFrequency);
+      return "welcome";
+    }
 
-    // Inserting transfer into transfer history for both customers
-    TestudoBankRepository.insertRowToTransferLogsTable(jdbcTemplate, senderUserID, recipientUserID, currentTime,
-        transferAmountInPennies);
+    System.out.println("AutoTransfer: Begin validating dates");
+
+    String autoTransferStartDateTime = sender.getAutoTransferStartDate() + " " + AUTOTRANSFER_TIME;
+    String autoTransferEndDateTime = sender.getAutoTransferEndDate() + " " + AUTOTRANSFER_TIME;
+    Date autoTransferStartDate = stringToDate(autoTransferStartDateTime);
+    Date autoTransferEndDate = stringToDate(autoTransferEndDateTime);
+
+    // check if the inputted date is valid
+    if (autoTransferStartDate.equals(null) || autoTransferEndDate.equals(null)) {
+      return "welcome";
+    }
+
+    // check if the inputted date is not in the past and the endDate is after
+    // startDate
+    Calendar currentDate = Calendar.getInstance();
+    Calendar transferStartDate = Calendar.getInstance();
+    Calendar transferEndDate = Calendar.getInstance();
+    transferStartDate.setTime(autoTransferStartDate);
+    transferEndDate.setTime(autoTransferEndDate);
+
+    if (transferStartDate.compareTo(transferEndDate) >= 0) {
+      System.out.println("AutoTransferError: start date cannot be after end date");
+      
+      return "welcome";
+    }
+
+    if (currentDate.compareTo(transferStartDate) > 0 || currentDate.compareTo(transferEndDate) > 0) {
+      System.out.println("AutoTransferError: start date and end date must be after current date");
+
+      return "welcome";
+    }
+
+    System.out.println("AutoTransfer: DATES ARE VALID");
+
+    TestudoBankRepository.insertRowToAutoTransfersTable(jdbcTemplate, senderUserID, recipientUserID,
+        autoTransferFrequency, transferAmountInPennies, autoTransferStartDateTime, autoTransferEndDateTime);
     updateAccountInfo(sender);
 
-    return "account_info";
+    Calendar scheduledTransferDate = scheduleAutoTransfer(sender);
+
+    if (scheduledTransferDate != null) {
+      sender.setNextAutoTransferDate(scheduledTransferDate.getTime());
+      return "account_info";
+    } else {
+      return "welcome";
+    }
+  }
+
+  // Helper method that schedules an automated transfer task, returns the date of the scheduled transfer if successful, otherwise null
+  private Calendar scheduleAutoTransfer(User sender) {
+    String startDateString = sender.getAutoTransferStartDate() + " " + AUTOTRANSFER_TIME;
+    String endDateString = sender.getAutoTransferEndDate() + " " + AUTOTRANSFER_TIME;
+
+    Date transferStartDate = stringToDate(startDateString);
+    Date transferEndDate = stringToDate(endDateString);
+
+    // check if the inputted date is valid
+    if (transferStartDate.equals(null) || transferEndDate.equals(null)) {
+      return null;
+    }
+
+    AutoTransferScheduler scheduler = AutoTransferScheduler.schedule(new Runnable() {
+      public void run() {
+        performAutoTransfer(sender);
+        System.out.println("AutoTransfer: SCHEDULED SUCCESS");
+      }
+    }, transferStartDate, transferEndDate, endDateString);
+
+    return scheduler.nextRunDate;
   }
   
 }

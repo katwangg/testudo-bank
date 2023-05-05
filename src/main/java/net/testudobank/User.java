@@ -6,6 +6,7 @@ import javax.validation.constraints.PositiveOrZero;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
+import java.util.Date;
 
 @ToString(onlyExplicitlyIncluded = true)
 public class User {
@@ -78,6 +79,9 @@ public class User {
 
   @Setter @Getter
   private String autoTransferEndDate;
+
+  @Setter @Getter
+  private Date nextAutoTransferDate;
 
   //// Crypto Fields ////
 

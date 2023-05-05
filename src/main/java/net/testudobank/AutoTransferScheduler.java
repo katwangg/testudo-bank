@@ -11,6 +11,7 @@ public class AutoTransferScheduler {
     // when
     private final Calendar startDate;
     private final Calendar endDate;
+    Calendar nextRunDate;
 
     private final int startMonth;
     private final int dayOfStartMonth;
@@ -42,16 +43,15 @@ public class AutoTransferScheduler {
         int hourOfDay = transferStartDate.get(Calendar.HOUR_OF_DAY);
 
         return new AutoTransferScheduler(runnable, transferStartDate, transferEndDate, startMonth, dayOfStartMonth,
-                endMonth,
-                dayOfEndMonth, hourOfDay, frequency);
+                endMonth, dayOfEndMonth, hourOfDay, frequency);
     }
 
     private AutoTransferScheduler(Runnable runnable, Calendar startDate, Calendar endDate, int startMonth,
-            int dayOfStartMonth,
-            int endMonth, int dayOfEndMonth, int hourOfDay, String frequency) {
+            int dayOfStartMonth, int endMonth, int dayOfEndMonth, int hourOfDay, String frequency) {
         this.transfer = runnable;
         this.startDate = startDate;
         this.endDate = endDate;
+        this.nextRunDate = null;
         this.startMonth = startMonth;
         this.dayOfStartMonth = dayOfStartMonth;
         this.endMonth = endMonth;
@@ -79,7 +79,10 @@ public class AutoTransferScheduler {
                                 transfer.run();
                             }
                         } finally {
-                            schedule(frequency); // schedule for the next month
+                            if (currentDate.compareTo(endDate) < 0) {
+                                System.out.println("schedule: schedule for the next month");
+                                schedule(frequency); // schedule for the next month
+                            }
                         }
                     }
                 }, nextDateMonthly());
@@ -87,47 +90,61 @@ public class AutoTransferScheduler {
                 current.schedule(new TimerTask() {
                     public void run() {
                         try {
-                            if (currentDate.compareTo(startDate) >= 0) { // only run if it is currently between the
+                            if (currentDate.compareTo(startDate) >= 0) { // only run if current date is between the
                                 // start and end date
                                 transfer.run();
                             }
                         } finally {
-                            schedule(frequency); // schedule for the next week
+                            if (currentDate.compareTo(endDate) < 0) {
+                                System.out.println("schedule: schedule for the next week");
+                                schedule(frequency); // schedule for the next week
+                            }
                         }
                     }
                 }, nextDateWeekly());
             }
         }
-
     }
 
     // Calculates the next date for Monthly auto transfers
     private Date nextDateMonthly() {
+        Calendar CURRENT_DATE = Calendar.getInstance();
         Calendar runDate = Calendar.getInstance();
 
-        runDate.set(Calendar.DAY_OF_MONTH, dayOfStartMonth);
+        runDate.set(Calendar.MONTH, startMonth);
         runDate.set(Calendar.DAY_OF_MONTH, dayOfStartMonth);
         runDate.set(Calendar.HOUR_OF_DAY, hourOfDay);
         runDate.set(Calendar.MINUTE, 0);
+        runDate.set(Calendar.SECOND, 0);
 
-        if (runDate.compareTo(startDate) >= 0) { // if it is currently the start date or after
+        if (CURRENT_DATE.compareTo(startDate) >= 0) { // if it is currently the start date or after
             runDate.add(Calendar.MONTH, 1); // set to next month
         }
 
+        System.out.println("nextDateMonthly: " + runDate.getTime());
+
+        nextRunDate = runDate;
         return runDate.getTime();
     }
 
     // Calculates the next date for Weekly auto trasfers
     private Date nextDateWeekly() {
+        Calendar CURRENT_DATE = Calendar.getInstance();
         Calendar runDate = Calendar.getInstance();
+        
+        runDate.set(Calendar.MONTH, startMonth);
         runDate.set(Calendar.DAY_OF_MONTH, dayOfStartMonth);
         runDate.set(Calendar.HOUR_OF_DAY, hourOfDay);
         runDate.set(Calendar.MINUTE, 0);
+        runDate.set(Calendar.SECOND, 0);
 
-        if (runDate.compareTo(startDate) >= 0) { // if it is currently the start date or after
-            runDate.add(dayOfStartMonth, 7); // set to next week
+        if (CURRENT_DATE.compareTo(startDate) >= 0) { // if it is currently the start date or after
+            runDate.add(Calendar.DAY_OF_MONTH, 7); // set to next week
         }
 
+        System.out.println("nextDateWeekly: " + runDate.getTime());
+        
+        nextRunDate = runDate;
         return runDate.getTime();
     }
 }

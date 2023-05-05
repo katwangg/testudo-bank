@@ -50,7 +50,6 @@ CREATE TABLE CryptoHistory (
 );
 
 CREATE TABLE AutoTransfers (
-  TransferID int,
   CustomerID varchar(255),
   RecipientID varchar(255),
   Frequency varchar(255),
